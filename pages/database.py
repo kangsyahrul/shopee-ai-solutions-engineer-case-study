@@ -9,9 +9,9 @@ from src.retriever.vector_search import VectorSearchRetriever
 st.sidebar.markdown("# Vector Database ❄️")
 
 # @st.cache_resource
-def get_qdrant_client(collection_name: str, vector_size: int, host: str = "localhost", port: int = 6333) -> Qdrant:
+def get_qdrant_client(host: str = "localhost", port: int = 6333) -> Qdrant:
     """Initialize and return a Qdrant client instance."""
-    qdrant_client = Qdrant(collection_name=collection_name, vector_size=vector_size, host=host, port=port)
+    qdrant_client = Qdrant(host=host, port=port)
     return qdrant_client
 
 # @st.cache_resource
@@ -23,15 +23,17 @@ def get_openai_embedder(model_name: str = "text-embedding-3-small", vector_size:
 st.title("Vector Database Management")
 st.write("Manage your Qdrant vector database and OpenAI embeddings here.")
 
+collection_name = "example_collection"
+
 # Initialize Qdrant client (example usage)
-qdrant_client = get_qdrant_client(collection_name="example_collection", vector_size=1536)
-st.write(f"Host: {qdrant_client.host}, Port: {qdrant_client.port}, Collection: {qdrant_client.collection_name}")
+qdrant_client = get_qdrant_client()
 
 # Initialize OpenAI embedder (example usage)
 openai_embedder = get_openai_embedder(model_name="text-embedding-3-small", vector_size=1536)
 
 # Initialize Retriever (example usage)
-retriever = VectorSearchRetriever(vector_store=qdrant_client, embedder=openai_embedder)
+retriever = VectorSearchRetriever(collection_name, vector_store=qdrant_client, embedder=openai_embedder)
+st.write(f"Host: {retriever.vector_store.host}, Port: {retriever.vector_store.port}, Collection: {retriever.collection_name}")
 
 # Insert data
 text_input = st.text_area("Enter text to embed and store in Qdrant:", "Sample text for embedding.")

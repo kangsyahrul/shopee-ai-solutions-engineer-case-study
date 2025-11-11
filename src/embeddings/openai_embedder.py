@@ -1,6 +1,5 @@
 from langchain_openai import OpenAIEmbeddings
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-
 from .embedder_base import EmbeddingBaseModel
 
 
