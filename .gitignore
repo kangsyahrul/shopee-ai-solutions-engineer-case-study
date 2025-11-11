@@ -1,5 +1,6 @@
 # Exclude large file (data)
 data/
+qdrant_storage/
 *.DS_Store
 
 # Byte-compiled / optimized / DLL files
