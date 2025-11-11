@@ -14,7 +14,7 @@ class VectorSearchRetriever:
         self.setup()
 
     def setup(self):
-        self.vector_store.setup(collection_name=self.collection_name, vector_size=self.embedder.vector_size)
+        self.vector_store.setup()
     
     def retrieve(self, query: str, top_k: int = 5):
         query_vector = self.embedder.embed_query(query)

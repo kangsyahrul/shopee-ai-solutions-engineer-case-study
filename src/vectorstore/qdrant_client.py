@@ -64,7 +64,7 @@ class Qdrant(VectorStoreBase):
         )
         
         print(f"Added {len(points)} vectors to collection: {self.collection_name}")
-        return operation_info
+        return operation_info.model_dump()
 
     def search_vectors(self, query_vector: List[float], top_k: int = 5):
         results = self.client.search(
