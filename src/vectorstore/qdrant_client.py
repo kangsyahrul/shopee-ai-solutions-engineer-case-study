@@ -2,7 +2,6 @@ import os
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
-
 from src.models.document import Document
 
 
@@ -49,11 +48,12 @@ class Qdrant:
         )
         return results
 
-    def insert_document(self, document: Document):
+    def insert_document(self, document: Document) -> dict:
         operation_info = self.client.upsert(
             collection_name=self.collection_name,
             points=[document.to_point()]
         )
         print(f"Inserted document ID: {document.id} into collection: {self.collection_name}")
-        return operation_info
+        print(f"Operation info: {operation_info}")
+        return operation_info.model_dump()
     
