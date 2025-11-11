@@ -13,7 +13,7 @@ class TestQdrant:
     def test_initialization(self):
         """Test Qdrant client initialization with default parameters."""
         # Arrange & Act
-        qdrant = Qdrant()
+        qdrant = Qdrant(collection_name="test_collection", vector_size=1536)
         
         # Assert
         assert qdrant.host == "localhost"

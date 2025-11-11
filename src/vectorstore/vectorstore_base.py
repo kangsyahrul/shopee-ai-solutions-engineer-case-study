@@ -2,7 +2,7 @@
 class VectorStoreBase:
     """Base class for vector stores."""
 
-    def setup(self, collection_name: str, vector_size: int):
+    def setup(self):
         raise NotImplementedError("setup method not implemented.")
 
     def add_vectors(self, vectors, payloads=[]):

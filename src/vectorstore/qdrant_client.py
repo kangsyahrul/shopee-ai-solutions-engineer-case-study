@@ -9,14 +9,15 @@ from .vectorstore_base import VectorStoreBase
 
 class Qdrant(VectorStoreBase):
 
-    def __init__(self, host: str = "localhost", port: int = 6333, collection_name: str = "default_collection"):
+    def __init__(self, host: str = "localhost", port: int = 6333, collection_name: str = "default_collection", vector_size: int = 1536):
         self.host = host or os.getenv("QDRANT_BASE_URL", "localhost")
         self.port = port or int(os.getenv("QDRANT_PORT", 6333))
         self.collection_name = collection_name
+        self.vector_size = vector_size
         self.client = QdrantClient(host=self.host, port=self.port)
 
     def setup_collection(self, collection_name: str, vector_size: int):
-        # Code to setup Qdrant collection
+        # Qdrant collection
         if self.client.collection_exists(collection_name=collection_name):
             print(f"Collection {collection_name} already exists.")
 
@@ -33,15 +34,14 @@ class Qdrant(VectorStoreBase):
         
         print(f"Collection {collection_name} created successfully.")
 
-    def setup(self, collection_name: str, vector_size: int):
-        # Setup code for Qdrant client
-        self.setup_collection(collection_name=collection_name, vector_size=vector_size)
+    def setup(self):
+        # Setup collection
+        self.setup_collection(collection_name=self.collection_name, vector_size=self.vector_size)
 
     def get_collections(self):
         return self.client.get_collections()
     
     def add_vectors(self, vectors: List[List[float]], payloads: List[Dict[str, Any]] = None):
-        """Add vectors with optional payloads to the collection."""
         if payloads is None:
             payloads = [{}] * len(vectors)
         
@@ -67,7 +67,6 @@ class Qdrant(VectorStoreBase):
         return operation_info
 
     def search_vectors(self, query_vector: List[float], top_k: int = 5):
-        """Search for similar vectors in the collection."""
         results = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_vector,
@@ -76,7 +75,6 @@ class Qdrant(VectorStoreBase):
         return results
 
     def delete_vectors(self, ids: List[str]):
-        """Delete vectors by their IDs from the collection."""
         operation_info = self.client.delete(
             collection_name=self.collection_name,
             points_selector=ids

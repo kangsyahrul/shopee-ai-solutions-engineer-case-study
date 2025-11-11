@@ -3,9 +3,10 @@ import streamlit as st
 # Define the pages
 main_page = st.Page("main.py", title="Main Page", icon="🎈")
 page_database = st.Page("pages/database.py", title="Vector Database", icon="❄️")
+page_custom_vectordb = st.Page("pages/custom_vectordb.py", title="Custom Vector DB", icon="❄️")
 
 # Set up navigation
-pg = st.navigation([main_page, page_database])
+pg = st.navigation([main_page, page_database, page_custom_vectordb])
 
 # Run the selected page
 pg.run()

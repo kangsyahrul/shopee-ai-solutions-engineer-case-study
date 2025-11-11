@@ -62,7 +62,6 @@ class CustomVectorDB(VectorStoreBase):
             return {}
 
     def _save_to_csv(self):
-        """Save current documents to CSV file."""
         if not self.documents:
             return
         
@@ -83,7 +82,6 @@ class CustomVectorDB(VectorStoreBase):
         df.to_csv(self.filepath, index=False)
 
     def add_vectors(self, vectors: List[List[float]], payloads: Optional[List[Dict[str, Any]]] = None):
-        """Add vectors with metadata to the database."""
         ids = [str(uuid.uuid4()) for _ in range(len(vectors))]
         
         if payloads is None:
@@ -108,7 +106,6 @@ class CustomVectorDB(VectorStoreBase):
         return ids
 
     def search_vectors(self, query_vector: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
-        """Search for similar vectors using cosine similarity."""
         if not self.documents:
             return []
         
@@ -141,7 +138,6 @@ class CustomVectorDB(VectorStoreBase):
         return results[:top_k]
 
     def delete_vectors(self, ids: List[str]):
-        """Delete vectors by their IDs."""
         for doc_id in ids:
             if doc_id in self.documents:
                 del self.documents[doc_id]
@@ -150,27 +146,15 @@ class CustomVectorDB(VectorStoreBase):
         self._save_to_csv()
 
     def get_document_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        """Get a document by its ID."""
         return self.documents.get(doc_id)
 
     def list_all_documents(self) -> List[Dict[str, Any]]:
-        """Get all documents in the database."""
         return list(self.documents.values())
 
     def count_documents(self) -> int:
-        """Get the total number of documents."""
         return len(self.documents)
 
-    def setup(self, collection_name: str, vector_size: int):
-        """Setup the custom vector database."""
-        # For CSV-based storage, we don't need to create collections like in Qdrant
-        # But we can validate and prepare the storage
-        print(f"Setting up CustomVectorDB with collection '{collection_name}' for vectors of size {vector_size}")
-        
-        # Store collection metadata for validation
-        self.collection_name = collection_name
-        self.vector_size = vector_size
-        
+    def setup(self):
         # Ensure the directory exists
         os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
         
@@ -180,5 +164,5 @@ class CustomVectorDB(VectorStoreBase):
             empty_df.to_csv(self.filepath, index=False)
             print(f"Created new CSV file at {self.filepath}")
         
-        print(f"CustomVectorDB setup completed for collection '{collection_name}'")
+        print(f"CustomVectorDB setup completed for file '{self.filepath}'")
         return True
