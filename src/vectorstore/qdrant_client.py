@@ -39,8 +39,24 @@ class Qdrant(VectorStoreBase):
         self.setup_collection(collection_name=self.collection_name, vector_size=self.vector_size)
 
     def get_collections(self):
-        return self.client.get_collections()
+        return [collection.name for collection in self.client.get_collections().collections]
     
+    def list_all_documents(self):
+        search_result = self.client.scroll(
+            collection_name=self.collection_name,
+            limit=1000,
+            with_vectors=True,
+        )
+
+        documents = []
+        for record in search_result[0]:
+            documents.append({
+                "id": record.id,
+                "payload": record.payload,
+                "vector": record.vector,
+            })
+        return documents
+
     def add_vectors(self, vectors: List[List[float]], payloads: List[Dict[str, Any]] = None):
         if payloads is None:
             payloads = [{}] * len(vectors)

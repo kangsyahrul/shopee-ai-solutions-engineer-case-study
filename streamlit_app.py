@@ -6,7 +6,7 @@ page_database = st.Page("pages/qdrant_vectordb.py", title="Qdrant Vector DB", ic
 page_custom_vectordb = st.Page("pages/custom_vectordb.py", title="Custom Vector DB", icon="❄️")
 
 # Set up navigation
-pg = st.navigation([main_page, page_database, page_custom_vectordb])
+pg = st.navigation([main_page, page_custom_vectordb, page_database, ])
 
 # Run the selected page
 pg.run()

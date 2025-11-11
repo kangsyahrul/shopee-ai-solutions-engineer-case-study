@@ -6,7 +6,7 @@ from src.embeddings.openai_embedder import OpenAIEmbeddingModel
 from src.models.document import Document
 from src.retriever.vector_search import VectorSearchRetriever
 
-st.sidebar.markdown("# Vector Database ❄️")
+st.sidebar.markdown("# Qdrant Vector Database ❄️")
 
 # @st.cache_resource
 def get_qdrant_client(host: str = "localhost", port: int = 6333, collection_name: str = "default_collection", vector_size: int = 1536) -> Qdrant:
@@ -21,7 +21,7 @@ def get_openai_embedder(model_name: str = "text-embedding-3-small", vector_size:
     return embedder
 
 st.title("Qdrant Vector Database Documents")
-st.write("Manage your Qdrant vector database and OpenAI embeddings here.")
+st.write("This page demonstrates the usage of Qdrant as a vector database.")
 
 collection_name = "example_collection"
 
@@ -33,16 +33,26 @@ openai_embedder = get_openai_embedder(model_name="text-embedding-3-small", vecto
 
 # Initialize Retriever (example usage)
 retriever = VectorSearchRetriever(vector_store=qdrant_client, embedder=openai_embedder)
-st.write(f"Host: {retriever.vector_store.host}, Port: {retriever.vector_store.port}")
+st.write(f"Host: {retriever.vector_store.host}, Port: {retriever.vector_store.port}, Collection: {retriever.vector_store.collection_name}")
+st.divider()
+
+# List all documents in the Qdrant vector database
+st.header("Stored Documents")
+collections = qdrant_client.list_all_documents()
+st.json(collections, expanded=False)
+st.divider()
 
 # Insert data
+st.header("Add New Document")
 text_input = st.text_area("Enter text to embed and store in Qdrant:", "Sample text for embedding.")
 if st.button("Embed and Store"):
     operation_info = retriever.add_document(Document(id=str(uuid4()), payload={"content": text_input}, vector=[]))
     st.success("Text embedded and stored in Qdrant.")
     st.json(operation_info)
+st.divider()
 
 # Query data
+st.header("Search Documents")
 query_input = st.text_input("Enter query text to search in Qdrant:", "Sample query.")
 if st.button("Search"):
     results = retriever.retrieve(query=query_input, top_k=5)
