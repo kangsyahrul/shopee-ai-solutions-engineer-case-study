@@ -1,13 +1,17 @@
 
-import base64
+import re
 import json
+import base64
+import sqlite3
+import os
+
 from typing import Dict, List, Optional, Any
 from openai import OpenAI
 from datetime import datetime
-import re
+from src.models.receipt import Receipt
 
 
-def extract_receipt_info(openai_client: OpenAI, image_bytes: bytes) -> Dict[str, Any]:
+def extract_receipt_info(openai_client: OpenAI, image_bytes: bytes) -> Receipt:
     prompt = """
     Please extract the following information from this food delivery receipt image and return it as a JSON object:
 
@@ -43,7 +47,8 @@ def extract_receipt_info(openai_client: OpenAI, image_bytes: bytes) -> Dict[str,
     }
 
     Extract only the information that is clearly visible in the receipt. Use null for missing information.
-    For numerical values, extract only the number without currency symbols.
+    For numerical values, extract only the number without currency symbols and convert to IDR (Indonesian Rupiah).
+    For example: if the receipt shows "Rp 69.000" or "69.000", extract as 69000.
     """
     
     try:
@@ -82,7 +87,8 @@ def extract_receipt_info(openai_client: OpenAI, image_bytes: bytes) -> Dict[str,
         else:
             receipt_data = json.loads(content)
             
-        return receipt_data
+        # return receipt_data
+        return Receipt.from_dict(receipt_data)
         
     except json.JSONDecodeError as e:
         print(f"Failed to parse JSON response: {e}")
