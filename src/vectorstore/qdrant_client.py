@@ -1,15 +1,18 @@
 import os
+import uuid
+from typing import List, Dict, Any
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
-from src.models.document import Document
+from qdrant_client.models import Distance, VectorParams, PointStruct
+from .vectorstore_base import VectorStoreBase
 
 
-class Qdrant:
+class Qdrant(VectorStoreBase):
 
-    def __init__(self, host: str = "localhost", port: int = 6333):
+    def __init__(self, host: str = "localhost", port: int = 6333, collection_name: str = "default_collection"):
         self.host = host or os.getenv("QDRANT_BASE_URL", "localhost")
         self.port = port or int(os.getenv("QDRANT_PORT", 6333))
+        self.collection_name = collection_name
         self.client = QdrantClient(host=self.host, port=self.port)
 
     def setup_collection(self, collection_name: str, vector_size: int):
@@ -37,20 +40,48 @@ class Qdrant:
     def get_collections(self):
         return self.client.get_collections()
     
-    def search(self, collection_name, query_vector: list[float], top_k: int = 5):
+    def add_vectors(self, vectors: List[List[float]], payloads: List[Dict[str, Any]] = None):
+        """Add vectors with optional payloads to the collection."""
+        if payloads is None:
+            payloads = [{}] * len(vectors)
+        
+        if len(vectors) != len(payloads):
+            raise ValueError("Vectors and payloads must have the same length")
+        
+        points = []
+        for i, (vector, payload) in enumerate(zip(vectors, payloads)):
+            point_id = str(uuid.uuid4())
+            point = PointStruct(
+                id=point_id,
+                vector=vector,
+                payload=payload
+            )
+            points.append(point)
+        
+        operation_info = self.client.upsert(
+            collection_name=self.collection_name,
+            points=points
+        )
+        
+        print(f"Added {len(points)} vectors to collection: {self.collection_name}")
+        return operation_info
+
+    def search_vectors(self, query_vector: List[float], top_k: int = 5):
+        """Search for similar vectors in the collection."""
         results = self.client.search(
-            collection_name=collection_name,
+            collection_name=self.collection_name,
             query_vector=query_vector,
             limit=top_k,
         )
         return results
 
-    def insert_document(self, document: Document) -> dict:
-        operation_info = self.client.upsert(
+    def delete_vectors(self, ids: List[str]):
+        """Delete vectors by their IDs from the collection."""
+        operation_info = self.client.delete(
             collection_name=self.collection_name,
-            points=[document.to_point()]
+            points_selector=ids
         )
-        print(f"Inserted document ID: {document.id} into collection: {self.collection_name}")
-        print(f"Operation info: {operation_info}")
-        return operation_info.model_dump()
+        
+        print(f"Deleted {len(ids)} vectors from collection: {self.collection_name}")
+        return operation_info
     
