@@ -1,20 +1,33 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudFormation template for Shopee AI Solutions Engineer Case Study Streamlit App'
+Description: 'CloudFormation template for Shopee AI Solutions Engineer Case Study Streamlit App on ECS'
 
 Parameters:
-  InstanceType:
+  TaskCpu:
     Type: String
-    Default: t3.medium
+    Default: '512'
     AllowedValues:
-      - t3.micro
-      - t3.small
-      - t3.medium
-      - t3.large
-    Description: EC2 instance type for the Streamlit application
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+    Description: CPU units for the ECS task (256 = 0.25 vCPU, 512 = 0.5 vCPU, etc.)
   
-  KeyPairName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Name of an existing EC2 KeyPair to enable SSH access
+  TaskMemory:
+    Type: String
+    Default: '1024'
+    AllowedValues:
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
+    Description: Memory (in MB) for the ECS task
+  
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of tasks to run
   
   AllowedCIDR:
     Type: String
@@ -76,8 +89,8 @@ Resources:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref VPC
 
-  # Public Subnet
-  PublicSubnet:
+  # Public Subnet 1
+  PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
@@ -86,7 +99,19 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-Public-Subnet
+          Value: !Sub ${AWS::StackName}-Public-Subnet-1
+
+  # Public Subnet 2 (required for ALB)
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-Subnet-2
 
   # Route Table
   PublicRouteTable:
@@ -106,31 +131,27 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  # Associate Route Table with Subnet
-  PublicSubnetRouteTableAssociation:
+  # Associate Route Table with Subnets
+  PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref PublicSubnet1
 
-  # Security Group
-  StreamlitSecurityGroup:
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  # Security Group for ALB
+  ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub ${AWS::StackName}-sg
-      GroupDescription: Security group for Streamlit application
+      GroupName: !Sub ${AWS::StackName}-alb-sg
+      GroupDescription: Security group for Application Load Balancer
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref AllowedCIDR
-          Description: SSH access
-        - IpProtocol: tcp
-          FromPort: 8501
-          ToPort: 8501
-          CidrIp: !Ref AllowedCIDR
-          Description: Streamlit application port
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
@@ -143,10 +164,39 @@ Resources:
           Description: HTTPS access
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-sg
+          Value: !Sub ${AWS::StackName}-alb-sg
 
-  # IAM Role for EC2 Instance
-  EC2Role:
+  # Security Group for ECS Tasks
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-ecs-sg
+      GroupDescription: Security group for ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8501
+          ToPort: 8501
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Allow ALB to access ECS tasks
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ecs-sg
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-cluster
+
+  # IAM Role for ECS Task Execution
+  ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -154,11 +204,10 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Service: ec2.amazonaws.com
+              Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
       Policies:
         - PolicyName: ECRAccess
           PolicyDocument:
@@ -171,164 +220,173 @@ Resources:
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
 
-  # Instance Profile
-  EC2InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
+  # CloudWatch Log Group
+  LogGroup:
+    Type: AWS::Logs::LogGroup
     Properties:
-      Roles:
-        - !Ref EC2Role
+      LogGroupName: !Sub /ecs/${AWS::StackName}
+      RetentionInDays: 7
 
-  # EC2 Instance
-  StreamlitInstance:
-    Type: AWS::EC2::Instance
+  # ECS Task Definition
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
     Properties:
-      ImageId: ami-07d4c2446de28bf0d # Ubuntu Server 24.04 LTS
-      InstanceType: !Ref InstanceType
-      KeyName: !Ref KeyPairName
+      Family: !Sub ${AWS::StackName}-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: streamlit-app
+          Image: !Ref DockerImage
+          PortMappings:
+            - ContainerPort: 8501
+              Protocol: tcp
+          Environment:
+            - Name: OPENAI_API_KEY
+              Value: !Ref OpenAIApiKey
+            - Name: QDRANT_HOST
+              Value: !Ref QdrantHost
+            - Name: QDRANT_PORT
+              Value: !Ref QdrantPort
+            - Name: QDRANT_API_KEY
+              Value: !Ref QdrantApiKey
+            - Name: STREAMLIT_SERVER_PORT
+              Value: '8501'
+            - Name: STREAMLIT_SERVER_ADDRESS
+              Value: '0.0.0.0'
+            - Name: STREAMLIT_SERVER_HEADLESS
+              Value: 'true'
+            - Name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+              Value: 'false'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - 'curl -f http://localhost:8501/_stcore/health || exit 1'
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${AWS::StackName}-alb
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-alb
+
+  # ALB Target Group
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${AWS::StackName}-tg
+      Port: 8501
+      Protocol: HTTP
       VpcId: !Ref VPC
-      SubnetId: !Ref PublicSubnet
-      SecurityGroupIds:
-        - !Ref StreamlitSecurityGroup
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          yum update -y
-          yum install -y docker
-          systemctl start docker
-          systemctl enable docker
-          usermod -a -G docker ec2-user
-          
-          # Install Docker Compose
-          curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-          chmod +x /usr/local/bin/docker-compose
-          
-          # Install AWS CLI v2
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          ./aws/install
-          
-          # Create application directory
-          mkdir -p /app
-          cd /app
-          
-          # Create environment file
-          cat > .env << 'ENVEOF'
-          OPENAI_API_KEY=${OpenAIApiKey}
-          QDRANT_HOST=${QdrantHost}
-          QDRANT_PORT=${QdrantPort}
-          QDRANT_API_KEY=${QdrantApiKey}
-          STREAMLIT_SERVER_PORT=8501
-          STREAMLIT_SERVER_ADDRESS=0.0.0.0
-          STREAMLIT_SERVER_HEADLESS=true
-          STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-          ENVEOF
-          
-          # Create docker-compose.yml for the application
-          cat > docker-compose.yml << 'EOF'
-          version: '3.8'
-          services:
-            streamlit-app:
-              image: ${DockerImage}
-              ports:
-                - "8501:8501"
-              restart: unless-stopped
-              env_file:
-                - .env
-              environment:
-                - STREAMLIT_SERVER_PORT=8501
-                - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-          EOF
-          
-          # Create systemd service for the application
-          cat > /etc/systemd/system/streamlit-app.service << 'EOF'
-          [Unit]
-          Description=Streamlit Application
-          Requires=docker.service
-          After=docker.service
-          
-          [Service]
-          Type=oneshot
-          RemainAfterExit=yes
-          WorkingDirectory=/app
-          ExecStart=/usr/local/bin/docker-compose up -d
-          ExecStop=/usr/local/bin/docker-compose down
-          TimeoutStartSec=0
-          
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          
-          systemctl daemon-reload
-          systemctl enable streamlit-app.service
-          
-          # Create deployment script
-          cat > /app/deploy.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          echo "Starting deployment..."
-          
-          # Get AWS region
-          REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
-          
-          # Login to ECR
-          aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.$REGION.amazonaws.com
-          
-          # Pull latest image
-          docker-compose pull
-          
-          # Restart services
-          docker-compose down
-          docker-compose up -d
-          
-          echo "Deployment completed successfully!"
-          EOF
-          
-          chmod +x /app/deploy.sh
-          
-          # Install CloudWatch agent
-          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
-          rpm -U ./amazon-cloudwatch-agent.rpm
-          
-          # Start the application initially (will be replaced by CI/CD)
-          echo "Setup completed. Ready for deployment."
+      TargetType: ip
+      HealthCheckPath: /_stcore/health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-instance
+          Value: !Sub ${AWS::StackName}-tg
 
-  # Elastic IP
-  ElasticIP:
-    Type: AWS::EC2::EIP
+  # ALB Listener
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      Domain: vpc
-      InstanceId: !Ref StreamlitInstance
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  # ECS Service
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      ServiceName: !Sub ${AWS::StackName}-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: streamlit-app
+          ContainerPort: 8501
+          TargetGroupArn: !Ref ALBTargetGroup
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-eip
+          Value: !Sub ${AWS::StackName}-service
 
 Outputs:
-  InstanceId:
-    Description: EC2 Instance ID
-    Value: !Ref StreamlitInstance
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
     Export:
-      Name: !Sub ${AWS::StackName}-InstanceId
+      Name: !Sub ${AWS::StackName}-ECSClusterName
 
-  PublicIP:
-    Description: Public IP address of the EC2 instance
-    Value: !Ref ElasticIP
+  ECSServiceName:
+    Description: ECS Service Name
+    Value: !Ref ECSService
     Export:
-      Name: !Sub ${AWS::StackName}-PublicIP
+      Name: !Sub ${AWS::StackName}-ECSServiceName
+
+  LoadBalancerDNS:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-LoadBalancerDNS
 
   StreamlitURL:
     Description: URL to access the Streamlit application
-    Value: !Sub http://${ElasticIP}:8501
+    Value: !Sub http://${ApplicationLoadBalancer.DNSName}
     Export:
       Name: !Sub ${AWS::StackName}-StreamlitURL
 
-  SSHCommand:
-    Description: SSH command to connect to the instance
-    Value: !Sub ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP}
+  TaskDefinitionArn:
+    Description: ECS Task Definition ARN
+    Value: !Ref ECSTaskDefinition
     Export:
-      Name: !Sub ${AWS::StackName}-SSHCommand
+      Name: !Sub ${AWS::StackName}-TaskDefinitionArn
