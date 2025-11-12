@@ -1,11 +1,19 @@
-import streamlit as st
 import os
+import asyncio
+import streamlit as st
+from dotenv import load_dotenv
+
 from openai import OpenAI
-from src.utils import extract_receipt_info
+# from agents import Agent, Runner, function_tool
+
+from src.utils import extract_text_from_pdf, extract_receipt_info
 from src.database.local_database import ReceiptDatabase
 
+
+assert load_dotenv(), "Failed to load .env file"
+
 # Initialize OpenAI client
-@st.cache_resource
+# @st.cache_resource
 def get_openai_client():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -13,27 +21,52 @@ def get_openai_client():
         return None
     return OpenAI(api_key=api_key)
 
+
 st.title("Online Food Receipt Chatbot")
 st.markdown("This chatbot extracts important information from your food delivery receipts.")
 
 # Get OpenAI client
 client = get_openai_client()
+
+# Initialize receipt database
 receipt_database = ReceiptDatabase(db_path="data/receipts.db")
 
-tab_insert, tab_chat = st.tabs(["Upload & Extract", "Chat with Receipt"])
+
+
+# # Tool definition for the agent
+# @function_tool
+# def get_weather(city: str) -> str:
+#     return f"The weather in {city} is sunny."
+
+
+# agent = Agent(
+#     name="Hello world",
+#     instructions="You are a helpful agent.",
+#     tools=[get_weather],
+# )
+
+
+# Tabs for upload/extract and chat
+tab_chat, tab_insert = st.tabs(["Chat with Receipt", "Upload & Extract"])
+
+# Upload & Extract Tab
 with tab_insert:
     # Upload receipt file
     uploaded_file = st.file_uploader(
         "Upload your food receipt", 
-        type=["png", "jpg", "jpeg"],
-        help="Supported formats: PNG, JPG, JPEG"
+        type=["png", "jpg", "jpeg", "pdf"],
+        help="Supported formats: PNG, JPG, JPEG, PDF"
     )
 
     if uploaded_file is not None:
         st.success("File uploaded successfully!")
+        uploaded_file_type = "pdf" if uploaded_file.name.lower().endswith(".pdf") else "image"
         
         # Display the uploaded image
-        st.image(uploaded_file, caption="Uploaded Receipt", use_column_width=True)
+        if uploaded_file_type == "image":
+            st.image(uploaded_file, caption="Uploaded Receipt", use_column_width=True)
+        else:
+            st.info("PDF file uploaded. Preview not available.")
         
     else:
         st.info("📤 Please upload a food receipt to start chatting.")
@@ -44,8 +77,15 @@ with tab_insert:
     if extract or (receipt_data is None and uploaded_file is not None):
         # Extract receipt information
         with st.spinner("🔍 Analyzing your receipt..."):
-            bytes_data = uploaded_file.getvalue()
-            receipt_data = extract_receipt_info(client, bytes_data)
+
+            if uploaded_file_type == "image":
+                receipt_data = extract_receipt_info(client, uploaded_file.getvalue())
+            else:
+                text = extract_text_from_pdf(uploaded_file.getvalue())
+                st.write("Extracted Text from PDF:")
+                st.write(text)
+                receipt_data = extract_receipt_info(client, text)
+
             st.session_state["receipt_data"] = receipt_data
         
         st.success("✅ Receipt analysis completed!")
@@ -54,6 +94,7 @@ with tab_insert:
     # Display extracted receipt information
     st.title("Receipt Analysis Results")
     if receipt_data:
+        # st.write(receipt_data)
         st.write(receipt_data.to_dict())
 
         # Insert into database
@@ -70,6 +111,24 @@ with tab_insert:
 
     # Show all stored receipts
     st.title("Stored Receipts in Local Database")
-    receipts = receipt_database.execute_query("SELECT * FROM receipts")
+    receipts = receipt_database.execute_query("SELECT * FROM receipts as r RIGHT JOIN receipt_items as ri ON r.id = ri.receipt_id")
     st.dataframe(receipts)
+
+    schema = receipt_database.get_schema()
+    with st.expander("Show Database Schema"):
+        st.json(schema)
             
+
+# Chat with Receipt Tab
+chats = st.session_state.get("chats", [])
+with tab_chat:
+    # Show conversation history
+    for chat in chats:
+        st.chat_message(chat["role"]).write(chat["content"])
+
+    # User input for chat
+    user_question = st.chat_input("Ask a question about your receipt:")
+    if user_question:
+        chats.append({"role": "user", "content": user_question})
+        st.session_state["chats"] = chats
+        st.rerun()
