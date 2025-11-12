@@ -13,8 +13,58 @@ env:
   STACK_NAME: shopee-streamlit-app
 
 jobs:
-  test:
+  check-changes:
     runs-on: ubuntu-latest
+    outputs:
+      docs-only: ${{ steps.check.outputs.docs-only }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check if only docs changed
+      id: check
+      run: |
+        # Get the list of changed files
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # For PR, compare with base branch
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.sha }})
+        else
+          # For push, compare with previous commit
+          CHANGED_FILES=$(git diff --name-only HEAD~1..HEAD)
+        fi
+        
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+        
+        # Check if all changed files are documentation files
+        DOCS_ONLY=true
+        while IFS= read -r file; do
+          if [[ -n "$file" && ! "$file" =~ ^(README\.md|.*\.md|docs/.*|DEPLOYMENT\.md|LICENSE.*|\.gitignore|.*\.txt|.*\.rst)$ ]]; then
+            DOCS_ONLY=false
+            break
+          fi
+        done <<< "$CHANGED_FILES"
+        
+        echo "docs-only=$DOCS_ONLY" >> $GITHUB_OUTPUT
+        echo "Documentation only changes: $DOCS_ONLY"
+
+  docs-only-info:
+    needs: check-changes
+    runs-on: ubuntu-latest
+    if: needs.check-changes.outputs.docs-only == 'true'
+    steps:
+    - name: Documentation changes only
+      run: |
+        echo "🔍 Only documentation files were changed."
+        echo "📝 Skipping build, test, and deployment pipeline."
+        echo "✅ No further action needed for documentation updates."
+
+  test:
+    needs: check-changes
+    runs-on: ubuntu-latest
+    if: needs.check-changes.outputs.docs-only != 'true'
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -54,9 +104,9 @@ jobs:
         name: codecov-umbrella
 
   build-and-push:
-    needs: test
+    needs: [check-changes, test]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.check-changes.outputs.docs-only != 'true'
     outputs:
       image: ${{ steps.build-image.outputs.image }}
     
@@ -110,9 +160,10 @@ jobs:
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
   deploy-infrastructure:
-    needs: build-and-push
+    needs: [check-changes, build-and-push]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/main' && needs.check-changes.outputs.docs-only != 'true'
     outputs:
       instance-id: ${{ steps.deploy-stack.outputs.instance-id }}
       public-ip: ${{ steps.deploy-stack.outputs.public-ip }}
@@ -127,6 +178,18 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
+
+    - name: Check stack status
+      run: |
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+        echo "Current stack status: $STACK_STATUS"
+        
+        # If stack is already in a complete state, we can proceed
+        if [[ "$STACK_STATUS" == "CREATE_COMPLETE" || "$STACK_STATUS" == "UPDATE_COMPLETE" ]]; then
+          echo "Stack is already in a complete state, proceeding..."
+        elif [[ "$STACK_STATUS" == *"IN_PROGRESS" ]]; then
+          echo "Stack operation is in progress, will wait for completion..."
+        fi
 
     - name: Deploy CloudFormation stack
       id: deploy-stack
@@ -163,8 +226,34 @@ jobs:
         fi
 
         echo "Waiting for stack operation to complete..."
-        aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_REGION 2>/dev/null ||
-        aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_REGION
+        
+        # Check stack status and wait accordingly
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+        
+        if [[ "$STACK_STATUS" == *"CREATE"* ]]; then
+          echo "Stack is being created, waiting for CREATE_COMPLETE..."
+          aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_REGION
+        elif [[ "$STACK_STATUS" == *"UPDATE"* ]]; then
+          echo "Stack is being updated, waiting for UPDATE_COMPLETE..."
+          aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_REGION
+        else
+          echo "Stack status: $STACK_STATUS"
+          # Generic wait with timeout
+          for i in {1..60}; do
+            CURRENT_STATUS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+            echo "Current stack status: $CURRENT_STATUS"
+            
+            if [[ "$CURRENT_STATUS" == *"COMPLETE" && "$CURRENT_STATUS" != *"DELETE_COMPLETE" ]]; then
+              echo "Stack operation completed successfully!"
+              break
+            elif [[ "$CURRENT_STATUS" == *"FAILED" || "$CURRENT_STATUS" == *"ROLLBACK"* ]]; then
+              echo "Stack operation failed with status: $CURRENT_STATUS"
+              exit 1
+            fi
+            
+            sleep 30
+          done
+        fi
 
         # Get outputs
         INSTANCE_ID=$(aws cloudformation describe-stacks \
@@ -183,9 +272,9 @@ jobs:
         echo "public-ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
 
   deploy-application:
-    needs: [build-and-push, deploy-infrastructure]
+    needs: [check-changes, build-and-push, deploy-infrastructure]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.check-changes.outputs.docs-only != 'true'
     
     steps:
     - name: Configure AWS credentials
