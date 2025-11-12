@@ -497,30 +497,6 @@ wheels = [
 ]
 
 [[package]]
-name = "fireducks"
-version = "1.4.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "firefw" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8d/11/60042b05b5f135a71fe74101c6875f6d89937abf1b42b2bd1b70c7324aa4/fireducks-1.4.3-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:70124614ac5e219c7e5dde42ebef32cc15156627f1faa10bb7a7285d214f0cba", size = 6732960, upload-time = "2025-10-10T09:28:46.189Z" },
-    { url = "https://files.pythonhosted.org/packages/25/b8/fc5a2bde24ff2e32cf3387c7e85f2ecbc628c953909908d0c19e973b9189/fireducks-1.4.3-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:0c4dfaeefec9a3a75b9ef22e594dc01354a7bcbf95c119d2d345c694a52a9203", size = 7786660, upload-time = "2025-10-10T09:28:48.337Z" },
-    { url = "https://files.pythonhosted.org/packages/b2/43/0d9a15ab39083bcb6ff88caff5d675b7e2ce68388d9b5eb1169659a75fec/fireducks-1.4.3-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:5df2c2a8d9646dcb7587af4b44e0899f40abdf835c7adb931b73f2835c68eed9", size = 6733360, upload-time = "2025-10-10T09:28:50.652Z" },
-    { url = "https://files.pythonhosted.org/packages/b8/30/a92394a2f4e7333c6fb94a24b16d1645662495d2fe68818f25ede1d61610/fireducks-1.4.3-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:ef26cd3a22c8747f220446358fa625b1e46cbecc911c9d74d46f7b0a880db026", size = 7786203, upload-time = "2025-10-10T09:28:52.885Z" },
-]
-
-[[package]]
-name = "firefw"
-version = "1.4.3"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/0d/41bc79a1817ce8463fbdadccdb12f13c100363993ed57da26ed2c7f64e3c/firefw-1.4.3-py3-none-any.whl", hash = "sha256:fa82fd38398457428c156803a4a42a15db83927c36e3859d2fb1ef022e99f012", size = 13103, upload-time = "2025-10-10T09:28:58.524Z" },
-]
-
-[[package]]
 name = "fonttools"
 version = "4.60.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2273,7 +2249,6 @@ name = "shopee-ai-solutions-engineer-case-study"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "fireducks" },
     { name = "ipykernel" },
     { name = "langchain-openai" },
     { name = "matplotlib" },
@@ -2290,7 +2265,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fireducks", specifier = ">=1.4.3" },
     { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "langchain-openai", specifier = ">=1.0.2" },
     { name = "matplotlib", specifier = ">=3.10.7" },
