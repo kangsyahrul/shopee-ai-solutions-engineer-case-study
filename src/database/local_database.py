@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from typing import Optional
 
@@ -7,6 +8,11 @@ from src.models.receipt import Receipt
 class ReceiptDatabase:
 
     def __init__(self, db_path: str):
+        # Ensure the directory exists before creating the database
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self._create_table()
