@@ -24,3 +24,21 @@ Shopee - AI Solutions Engineer Case Study
     ```bash
     source .venv/bin/activate
     ```
+
+
+# Run the test
+```bash
+pytest tests/ -v
+python -m pytest tests/test_openai_embedder.py -v
+```
+
+# Run the app
+```bash
+streamlit run app.py
+```
+
+# Docker Build & Run
+```bash
+docker build -t shopee-ai-solutions-engineer-case-study .
+docker run -p 8501:8501 shopee-ai-solutions-engineer-case-study
+```

@@ -5,10 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fireducks>=1.4.3",
     "ipykernel>=7.1.0",
     "langchain-openai>=1.0.2",
     "matplotlib>=3.10.7",
+    "openai-agents>=0.5.0",
+    "pymupdf>=1.26.6",
+    "pypdf>=6.2.0",
     "pytest>=8.0.0",
     "pytest-cov>=7.0.0",
     "python-dotenv>=1.2.1",
