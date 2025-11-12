@@ -72,7 +72,8 @@ with tab_insert:
     uploaded_file = st.file_uploader(
         "Upload your food receipt", 
         type=["png", "jpg", "jpeg", "pdf"],
-        help="Supported formats: PNG, JPG, JPEG, PDF"
+        help="Supported formats: PNG, JPG, JPEG, PDF",
+        key="receipt_uploader"  # Add unique key for better session handling
     )
 
     if uploaded_file is not None:
@@ -94,18 +95,34 @@ with tab_insert:
     if extract or (receipt_data is None and uploaded_file is not None):
         # Extract receipt information
         with st.spinner("🔍 Analyzing your receipt..."):
+            try:
+                if uploaded_file_type == "image":
+                    # Get file bytes with error handling
+                    file_bytes = uploaded_file.getvalue()
+                    if len(file_bytes) == 0:
+                        st.error("❌ Uploaded file is empty. Please try uploading again.")
+                        st.stop()
+                    receipt_data = extract_receipt_info(client, file_bytes)
+                else:
+                    # Get file bytes with error handling for PDF
+                    file_bytes = uploaded_file.getvalue()
+                    if len(file_bytes) == 0:
+                        st.error("❌ Uploaded PDF is empty. Please try uploading again.")
+                        st.stop()
+                    text = extract_text_from_pdf(file_bytes)
+                    st.write("Extracted Text from PDF:")
+                    st.write(text)
+                    receipt_data = extract_receipt_info(client, text)
 
-            if uploaded_file_type == "image":
-                receipt_data = extract_receipt_info(client, uploaded_file.getvalue())
-            else:
-                text = extract_text_from_pdf(uploaded_file.getvalue())
-                st.write("Extracted Text from PDF:")
-                st.write(text)
-                receipt_data = extract_receipt_info(client, text)
-
-            st.session_state["receipt_data"] = receipt_data
-        
-        st.success("✅ Receipt analysis completed!")
+                st.session_state["receipt_data"] = receipt_data
+                st.success("✅ Receipt analysis completed!")
+                
+            except Exception as e:
+                st.error(f"❌ Error processing file: {str(e)}")
+                st.error("This might be due to a session issue. Please try uploading the file again.")
+                # Clear the problematic data
+                if "receipt_data" in st.session_state:
+                    del st.session_state["receipt_data"]
     st.divider()
 
     # Display extracted receipt information

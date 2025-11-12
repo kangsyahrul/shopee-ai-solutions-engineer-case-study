@@ -22,6 +22,10 @@ RUN uv pip install --system --no-cache -r pyproject.toml
 # Copy the rest of the application
 COPY . .
 
+# Create .streamlit directory and copy config
+RUN mkdir -p /root/.streamlit
+COPY .streamlit/config.toml /root/.streamlit/config.toml
+
 EXPOSE 8501
 
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health

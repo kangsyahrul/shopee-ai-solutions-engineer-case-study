@@ -1,0 +1,33 @@
+[server]
+# Configure server settings for ECS deployment
+port = 8501
+address = "0.0.0.0"
+headless = true
+runOnSave = false
+allowRunOnSave = false
+
+# Session management settings
+maxUploadSize = 50
+maxMessageSize = 50
+
+# Enable CORS for load balancer
+enableCORS = true
+enableXsrfProtection = false
+
+# WebSocket settings for better stability
+enableWebsocketCompression = false
+
+[browser]
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+serverPort = 8501
+
+[client]
+# Client timeout settings
+caching = true
+displayEnabled = true
+showErrorDetails = "full"
+
+[global]
+# Development settings
+developmentMode = false
