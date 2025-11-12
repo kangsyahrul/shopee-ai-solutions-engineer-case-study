@@ -4,7 +4,7 @@ Description: 'CloudFormation template for Shopee AI Solutions Engineer Case Stud
 Parameters:
   TaskCpu:
     Type: String
-    Default: '512'
+    Default: '1024'
     AllowedValues:
       - '256'
       - '512'
@@ -14,7 +14,7 @@ Parameters:
   
   TaskMemory:
     Type: String
-    Default: '1024'
+    Default: '2048'
     AllowedValues:
       - '512'
       - '1024'
