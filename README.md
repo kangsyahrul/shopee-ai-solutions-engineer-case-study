@@ -43,6 +43,9 @@ python -m pytest tests/test_openai_embedder.py -v
 # Build and run locally
 docker build -t shopee-ai-solutions-engineer-case-study .
 docker run -p 8501:8501 shopee-ai-solutions-engineer-case-study
+
+# Or use Docker Compose to run Streamlit and Qdrant
+docker compose up -d
 ```
 
 ### Local Qdrant
