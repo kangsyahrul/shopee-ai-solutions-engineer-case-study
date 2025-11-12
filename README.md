@@ -1,5 +1,11 @@
-# shopee-ai-solutions-engineer-case-study
-Shopee - AI Solutions Engineer Case Study
+# Shopee - AI Solutions Engineer Case Study
+
+Engineering Knowledge AI Agent Test: [Docs](docs/knowledge_test.md)
+
+Coding Test: 
+- Number 1-3: `notebooks/task_1.ipynb`
+- No. 4: [URL](http://shopee-streamlit-app-alb-1045798762.ap-southeast-3.elb.amazonaws.com/custom_vectordb)
+- No. 5: [URL](http://shopee-streamlit-app-alb-1045798762.ap-southeast-3.elb.amazonaws.com/)
 
 
 # Setup Environment
@@ -10,35 +16,36 @@ Shopee - AI Solutions Engineer Case Study
     └── customers-2000000.csv
     ```
 
-2. Initialize python env using `uv`
-    ```bash
-    uv init
-    ```
+2. **Initialize Python environment** using `uv`:
+   ```bash
+   uv init
+   uv pip install -r pyproject.toml
+   source .venv/bin/activate
+   ```
 
-3. Install dependencies
-    ```bash
-    uv pip install -r pyproject.toml
-    ```
+3. **Run the application**:
+   ```bash
+   streamlit run streamlit_app.py
+   ```
 
-4. Activate environment
-    ```bash
-    source .venv/bin/activate
-    ```
+## Testing
 
-
-# Run the test
+Run the test suite:
 ```bash
 pytest tests/ -v
 python -m pytest tests/test_openai_embedder.py -v
 ```
 
-# Run the app
-```bash
-streamlit run app.py
-```
+## Docker
 
-# Docker Build & Run
+### Local Docker
 ```bash
+# Build and run locally
 docker build -t shopee-ai-solutions-engineer-case-study .
 docker run -p 8501:8501 shopee-ai-solutions-engineer-case-study
+```
+
+### Local Qdrant
+```bash
+./qdrant.sh
 ```
