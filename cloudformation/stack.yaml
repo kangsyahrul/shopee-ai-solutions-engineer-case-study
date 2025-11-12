@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for Shopee AI Solutions Engineer Case Study Streamlit App'
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+    Description: EC2 instance type for the Streamlit application
+  
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+  
+  AllowedCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to access the application
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+  
+  DockerImage:
+    Type: String
+    Description: Docker image URI for the Streamlit application
+    Default: shopee-ai-solutions-engineer-case-study:latest
+  
+  OpenAIApiKey:
+    Type: String
+    Description: OpenAI API Key for embeddings
+    NoEcho: true
+    Default: ""
+  
+  QdrantHost:
+    Type: String
+    Description: Qdrant host URL
+    Default: "localhost"
+  
+  QdrantPort:
+    Type: String
+    Description: Qdrant port
+    Default: "6333"
+  
+  QdrantApiKey:
+    Type: String
+    Description: Qdrant API Key (optional)
+    NoEcho: true
+    Default: ""
+
+Resources:
+  # VPC Configuration
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-VPC
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-IGW
+
+  # Attach Internet Gateway to VPC
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-Subnet
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-Routes
+
+  # Default Route
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate Route Table with Subnet
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # Security Group
+  StreamlitSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-sg
+      GroupDescription: Security group for Streamlit application
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedCIDR
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 8501
+          ToPort: 8501
+          CidrIp: !Ref AllowedCIDR
+          Description: Streamlit application port
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedCIDR
+          Description: HTTP access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref AllowedCIDR
+          Description: HTTPS access
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-sg
+
+  # IAM Role for EC2 Instance
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+
+  # Instance Profile
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # EC2 Instance
+  StreamlitInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2023 AMI (update as needed)
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      VpcId: !Ref VPC
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref StreamlitSecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install Docker Compose
+          curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Install AWS CLI v2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          
+          # Create application directory
+          mkdir -p /app
+          cd /app
+          
+          # Create environment file
+          cat > .env << 'ENVEOF'
+          OPENAI_API_KEY=${OpenAIApiKey}
+          QDRANT_HOST=${QdrantHost}
+          QDRANT_PORT=${QdrantPort}
+          QDRANT_API_KEY=${QdrantApiKey}
+          STREAMLIT_SERVER_PORT=8501
+          STREAMLIT_SERVER_ADDRESS=0.0.0.0
+          STREAMLIT_SERVER_HEADLESS=true
+          STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+          ENVEOF
+          
+          # Create docker-compose.yml for the application
+          cat > docker-compose.yml << 'EOF'
+          version: '3.8'
+          services:
+            streamlit-app:
+              image: ${DockerImage}
+              ports:
+                - "8501:8501"
+              restart: unless-stopped
+              env_file:
+                - .env
+              environment:
+                - STREAMLIT_SERVER_PORT=8501
+                - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+          EOF
+          
+          # Create systemd service for the application
+          cat > /etc/systemd/system/streamlit-app.service << 'EOF'
+          [Unit]
+          Description=Streamlit Application
+          Requires=docker.service
+          After=docker.service
+          
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory=/app
+          ExecStart=/usr/local/bin/docker-compose up -d
+          ExecStop=/usr/local/bin/docker-compose down
+          TimeoutStartSec=0
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          systemctl daemon-reload
+          systemctl enable streamlit-app.service
+          
+          # Create deployment script
+          cat > /app/deploy.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          echo "Starting deployment..."
+          
+          # Get AWS region
+          REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+          
+          # Login to ECR
+          aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.$REGION.amazonaws.com
+          
+          # Pull latest image
+          docker-compose pull
+          
+          # Restart services
+          docker-compose down
+          docker-compose up -d
+          
+          echo "Deployment completed successfully!"
+          EOF
+          
+          chmod +x /app/deploy.sh
+          
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+          rpm -U ./amazon-cloudwatch-agent.rpm
+          
+          # Start the application initially (will be replaced by CI/CD)
+          echo "Setup completed. Ready for deployment."
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-instance
+
+  # Elastic IP
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref StreamlitInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-eip
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref StreamlitInstance
+    Export:
+      Name: !Sub ${AWS::StackName}-InstanceId
+
+  PublicIP:
+    Description: Public IP address of the EC2 instance
+    Value: !Ref ElasticIP
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicIP
+
+  StreamlitURL:
+    Description: URL to access the Streamlit application
+    Value: !Sub http://${ElasticIP}:8501
+    Export:
+      Name: !Sub ${AWS::StackName}-StreamlitURL
+
+  SSHCommand:
+    Description: SSH command to connect to the instance
+    Value: !Sub ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP}
+    Export:
+      Name: !Sub ${AWS::StackName}-SSHCommand

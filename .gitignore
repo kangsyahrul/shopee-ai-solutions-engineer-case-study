@@ -210,3 +210,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Deployment and secrets
+.env
+*.pem
+command-id.txt
+
+# AWS CloudFormation outputs
+stack-outputs.json
+
+# Local development
+docker-compose.override.yml

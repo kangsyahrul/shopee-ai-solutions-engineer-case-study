@@ -10,7 +10,7 @@ from .vectorstore_base import VectorStoreBase
 class Qdrant(VectorStoreBase):
 
     def __init__(self, host: str = "localhost", port: int = 6333, collection_name: str = "default_collection", vector_size: int = 1536):
-        self.host = host or os.getenv("QDRANT_BASE_URL", "localhost")
+        self.host = host or os.getenv("QDRANT_HOST", "localhost")
         self.port = port or int(os.getenv("QDRANT_PORT", 6333))
         self.collection_name = collection_name
         self.vector_size = vector_size

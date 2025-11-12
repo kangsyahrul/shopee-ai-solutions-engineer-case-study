@@ -1,0 +1,259 @@
+name: Deploy Streamlit App to AWS EC2
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-3
+  ECR_REPOSITORY: shopee-ai-solutions-engineer-case-study-syahrul
+  STACK_NAME: shopee-streamlit-app
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Install dependencies
+      run: |
+        uv pip install --system -r pyproject.toml
+
+    - name: Create test .env file
+      run: |
+        cat > .env << EOF
+        # Test Environment Variables
+        OPENAI_API_KEY=test-key-for-testing
+        QDRANT_HOST=localhost
+        QDRANT_PORT=6333
+        QDRANT_API_KEY=""
+        EOF
+
+    - name: Run tests
+      run: |
+        pytest tests/ -v --cov=src --cov-report=xml
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Create ECR repository if it doesn't exist
+      run: |
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION ||
+        aws ecr create-repository --repository-name $ECR_REPOSITORY --region $AWS_REGION
+
+    - name: Create .env file for production
+      run: |
+        cat > .env << EOF
+        # Production Environment Variables
+        OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+        QDRANT_HOST=${{ secrets.QDRANT_HOST || 'localhost' }}
+        QDRANT_PORT=${{ secrets.QDRANT_PORT || '6333' }}
+        QDRANT_API_KEY=${{ secrets.QDRANT_API_KEY }}
+        
+        # Streamlit Configuration
+        STREAMLIT_SERVER_PORT=8501
+        STREAMLIT_SERVER_ADDRESS=0.0.0.0
+        STREAMLIT_SERVER_HEADLESS=true
+        STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+        EOF
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build a docker container and push it to ECR
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  deploy-infrastructure:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      instance-id: ${{ steps.deploy-stack.outputs.instance-id }}
+      public-ip: ${{ steps.deploy-stack.outputs.public-ip }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Deploy CloudFormation stack
+      id: deploy-stack
+      run: |
+        # Check if stack exists
+        if aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION 2>/dev/null; then
+          echo "Stack exists, updating..."
+          aws cloudformation update-stack \
+            --stack-name $STACK_NAME \
+            --template-body file://cloudformation/stack.yaml \
+            --parameters \
+              ParameterKey=KeyPairName,ParameterValue=${{ secrets.EC2_KEY_PAIR_NAME }} \
+              ParameterKey=DockerImage,ParameterValue=${{ needs.build-and-push.outputs.image }} \
+              ParameterKey=OpenAIApiKey,ParameterValue=${{ secrets.OPENAI_API_KEY }} \
+              ParameterKey=QdrantHost,ParameterValue=${{ secrets.QDRANT_HOST || 'localhost' }} \
+              ParameterKey=QdrantPort,ParameterValue=${{ secrets.QDRANT_PORT || '6333' }} \
+              ParameterKey=QdrantApiKey,ParameterValue=${{ secrets.QDRANT_API_KEY || '' }} \
+            --capabilities CAPABILITY_IAM \
+            --region $AWS_REGION || echo "No updates required"
+        else
+          echo "Stack doesn't exist, creating..."
+          aws cloudformation create-stack \
+            --stack-name $STACK_NAME \
+            --template-body file://cloudformation/stack.yaml \
+            --parameters \
+              ParameterKey=KeyPairName,ParameterValue=${{ secrets.EC2_KEY_PAIR_NAME }} \
+              ParameterKey=DockerImage,ParameterValue=${{ needs.build-and-push.outputs.image }} \
+              ParameterKey=OpenAIApiKey,ParameterValue=${{ secrets.OPENAI_API_KEY }} \
+              ParameterKey=QdrantHost,ParameterValue=${{ secrets.QDRANT_HOST || 'localhost' }} \
+              ParameterKey=QdrantPort,ParameterValue=${{ secrets.QDRANT_PORT || '6333' }} \
+              ParameterKey=QdrantApiKey,ParameterValue=${{ secrets.QDRANT_API_KEY || '' }} \
+            --capabilities CAPABILITY_IAM \
+            --region $AWS_REGION
+        fi
+
+        echo "Waiting for stack operation to complete..."
+        aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_REGION 2>/dev/null ||
+        aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_REGION
+
+        # Get outputs
+        INSTANCE_ID=$(aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME \
+          --region $AWS_REGION \
+          --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
+          --output text)
+        
+        PUBLIC_IP=$(aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME \
+          --region $AWS_REGION \
+          --query 'Stacks[0].Outputs[?OutputKey==`PublicIP`].OutputValue' \
+          --output text)
+
+        echo "instance-id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "public-ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+
+  deploy-application:
+    needs: [build-and-push, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Wait for instance to be ready
+      run: |
+        echo "Waiting for instance to be running and ready..."
+        aws ec2 wait instance-running --instance-ids ${{ needs.deploy-infrastructure.outputs.instance-id }} --region $AWS_REGION
+        
+        # Wait for instance status checks to pass
+        aws ec2 wait instance-status-ok --instance-ids ${{ needs.deploy-infrastructure.outputs.instance-id }} --region $AWS_REGION
+
+    - name: Deploy application to EC2
+      run: |
+        # Update the docker-compose.yml with the new image
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["cd /app && sed -i \"s|image:.*|image: ${{ needs.build-and-push.outputs.image }}|\" docker-compose.yml && ./deploy.sh"]' \
+          --targets "Key=instanceids,Values=${{ needs.deploy-infrastructure.outputs.instance-id }}" \
+          --region $AWS_REGION \
+          --output text \
+          --query 'Command.CommandId' > command-id.txt
+        
+        COMMAND_ID=$(cat command-id.txt)
+        echo "Command ID: $COMMAND_ID"
+        
+        # Wait for command to complete
+        aws ssm wait command-executed \
+          --command-id $COMMAND_ID \
+          --instance-id ${{ needs.deploy-infrastructure.outputs.instance-id }} \
+          --region $AWS_REGION
+        
+        # Get command output
+        aws ssm get-command-invocation \
+          --command-id $COMMAND_ID \
+          --instance-id ${{ needs.deploy-infrastructure.outputs.instance-id }} \
+          --region $AWS_REGION \
+          --query 'StandardOutputContent' \
+          --output text
+
+    - name: Display deployment info
+      run: |
+        echo "🎉 Deployment completed successfully!"
+        echo "🌐 Application URL: http://${{ needs.deploy-infrastructure.outputs.public-ip }}:8501"
+        echo "🖥️  SSH Access: ssh -i ${{ secrets.EC2_KEY_PAIR_NAME }}.pem ec2-user@${{ needs.deploy-infrastructure.outputs.public-ip }}"
+        echo "📊 Instance ID: ${{ needs.deploy-infrastructure.outputs.instance-id }}"
+
+  cleanup:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Delete CloudFormation stack for PR
+      run: |
+        PR_STACK_NAME="${STACK_NAME}-pr-${{ github.event.number }}"
+        if aws cloudformation describe-stacks --stack-name $PR_STACK_NAME --region $AWS_REGION 2>/dev/null; then
+          echo "Deleting stack $PR_STACK_NAME"
+          aws cloudformation delete-stack --stack-name $PR_STACK_NAME --region $AWS_REGION
+          aws cloudformation wait stack-delete-complete --stack-name $PR_STACK_NAME --region $AWS_REGION
+        fi
