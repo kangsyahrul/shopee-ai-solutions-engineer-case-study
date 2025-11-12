@@ -4,13 +4,15 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from openai import OpenAI
-# from agents import Agent, Runner, function_tool
+from agents import Agent, Runner, function_tool
 
 from src.utils import extract_text_from_pdf, extract_receipt_info
 from src.database.local_database import ReceiptDatabase
+from datetime import datetime
 
 
 assert load_dotenv(), "Failed to load .env file"
+
 
 # Initialize OpenAI client
 # @st.cache_resource
@@ -30,21 +32,36 @@ client = get_openai_client()
 
 # Initialize receipt database
 receipt_database = ReceiptDatabase(db_path="data/receipts.db")
+schema = receipt_database.get_schema()
+st.json(schema, expanded=False)
+
+AGENT_PROMPT = """
+You are an AI assistant that helps users with information extracted from their food delivery receipts. Use the tools available to you to answer questions about the receipt data.
+Here is the schema of the receipt database you can query:
+{schema}
+
+Current time: {current_time}
+
+When answering questions, refer to the relevant fields in the database schema to provide accurate information. You can use the current time to provide context for time-based queries or comparisons.
+"""
 
 
+# Tool definition for the agent
+@function_tool
+def run_query(query: str) -> str:
+    return receipt_database.execute_query(query)
 
-# # Tool definition for the agent
-# @function_tool
-# def get_weather(city: str) -> str:
-#     return f"The weather in {city} is sunny."
 
+agent = Agent(
+    name="Agent-Receipt-Chatbot",
+    instructions=AGENT_PROMPT.format(schema=schema, current_time=datetime.now().isoformat()),
+    tools=[run_query],
+)
 
-# agent = Agent(
-#     name="Hello world",
-#     instructions="You are a helpful agent.",
-#     tools=[get_weather],
-# )
-
+async def run_agent(user_input: str):
+    """Runs the OpenAI Agent with the given user input."""
+    result = await Runner.run(agent, user_input)
+    return result.final_output
 
 # Tabs for upload/extract and chat
 tab_chat, tab_insert = st.tabs(["Chat with Receipt", "Upload & Extract"])
@@ -131,4 +148,11 @@ with tab_chat:
     if user_question:
         chats.append({"role": "user", "content": user_question})
         st.session_state["chats"] = chats
+
+        with st.spinner("🤖 Thinking..."):
+            agent_response = asyncio.run(run_agent(user_question))
+
+            chats.append({"role": "assistant", "content": agent_response})
+            st.session_state["chats"] = chats
+        
         st.rerun()
